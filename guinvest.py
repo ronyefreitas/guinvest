@@ -177,29 +177,35 @@ def make_df_compare(df_prices, periods=10):
     make_chart(df_compare[['Real Ret %', 'Pred Ret %']])
     st.dataframe(df_compare.round(decimals=2), height=2500)
 
-### STREAMLIT DASHBOARD ###
+
+# STREAMLIT DASHBOARD #
 st.title("Guinvest")
 st.sidebar.title("My Stocks")
 
 df_tickers = load_tickers()
+# Filling in a multiselect box with all the tickers available.
 tickers = st.sidebar.multiselect(label="Tickers",
                                  options=df_tickers['y_ticker'].values,
                                  key=0)
 
+# A data imputer for the start and end date which will define the timespan
+# which the model will consider in its fitting. The default start date is one
+# year before today.
 start_date = st.sidebar.date_input("From",
-                                   value=today - dt.timedelta(days=360),
+                                   value=today - dt.timedelta(days=365),
                                    max_value=today)
-
 end_date = st.sidebar.date_input("Until",
                                  value=today,
                                  max_value=today) + dt.timedelta(days=1)
 
+# A selectbox to choose the number of steps (days) ahead the model will predict
 steps_options = np.arange(1, 11, 1)
 steps_options = list(steps_options)
 steps = st.sidebar.selectbox(label='Periods to forecast',
                              options=steps_options)
 
 try:
+    # load the data based on chosen tickers and show them.
     df_prices = load_historical_data(tickers, start_date, end_date,
                                      df_type='prices')
     make_chart(df_prices)
@@ -212,16 +218,20 @@ except ValueError:
 except TypeError:
     st.write('Select how many days ahead you want to predict.')
 
+# The models are evaluated one ticker at a time. The user can choose among the
+# previously selected ones.
 st.sidebar.title('Evaluating models')
 ticker_eval = st.sidebar.selectbox(label='Select ticker',
                                    options=tickers)
 
+# A selectbox that enables the user to choose the model evaluation timespan.
 eval_options = np.arange(6, 31, 1)
 eval_options = list(eval_options)
 eval_periods = st.sidebar.selectbox(label='Evaluation period (days)',
                                     options=eval_options)
 
 try:
+    # Make the evaluation plots and table.
     make_df_compare(df_prices[ticker_eval + ' Close'], periods=eval_periods)
 except NameError:
     pass
