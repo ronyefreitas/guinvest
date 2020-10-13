@@ -122,40 +122,58 @@ def make_table(df_prices):
 
 st.cache(persist=True)
 def make_df_pred_ARIMA(df_prices, steps):
-    """ This function creates the DataFrame which has the tickers"""
+    """ This function creates the DataFrame which has the tickers, closing
+    prices and predicted values based on ARIMA model for a selected number of
+    steps ahead."""
+
+    # Sort values from the oldest values to the newest ones in order to fit
+    # the model.
     df_true_values = df_prices.sort_index(ascending=True)
     forecasts = pd.DataFrame(index=[f'(ARIMA) D + {i + 1}' for i in range(steps)])
     for col in df_true_values.columns:
+        # Find ARIMA's p, d, q values automatically and fit the model.
         model = pm.auto_arima(df_true_values[col])
         forecasts[col] = model.predict(steps)
+    # Dataframe with the last 5 real closing prices and the predicted values.
     df_results = pd.concat([df_true_values.iloc[-5:], forecasts])
     df_results.columns = [f'{col}'.split('.')[0] for col in df_results.columns]
     st.dataframe(df_results.round(decimals=2), height=2500)
 
 st.cache(persist=True)
 def make_df_compare(df_prices, periods=10):
+    """ This function creates a DataFrame and a Plot that helps the user to
+    evaluate the model performance, comparing the actual data with the value
+    that the model would have predicted for the given date based only on the
+    previous datapoints."""
     df_prices = df_prices.sort_index(ascending=True)
     preds = []
     i = periods + 1
     while (i >= 1):
+        # The model only takes into acount the past values and then predicts
+        # one step ahead.
         model = pm.auto_arima(df_prices.iloc[: - i])
         preds.append(model.predict(1)[0])
         i = i - 1
 
+    # The last prediction is left aside because it is related to next day, so
+    # that is useless for comparison purposes.
     df_preds = pd.DataFrame({'Predicted': preds[:-1]},
-                            index = df_prices.iloc[-periods:].index)
+                            index=df_prices.iloc[-periods:].index)
 
+    # Putting the real and predicted values side to side.
     df_compare = pd.concat([df_prices.iloc[-periods:], df_preds],
                            axis=1, join='inner')
-
+    # The real percent return.
     df_compare['Real Ret %'] = (((df_compare[df_compare.columns[0]]
                                  - df_compare[df_compare.columns[0]].shift(1))
                                 / df_compare[df_compare.columns[0]].shift(1))
                                 * 100)
+    # The predicted percent return.
     df_compare['Pred Ret %'] = (((df_compare[df_compare.columns[0]]
                                  - df_compare[df_compare.columns[1]].shift(1))
                                 / df_compare[df_compare.columns[1]].shift(1))
                                 * 100)
+    # Plotting the data.
     make_chart(df_compare[['Real Ret %', 'Pred Ret %']])
     st.dataframe(df_compare.round(decimals=2), height=2500)
 
