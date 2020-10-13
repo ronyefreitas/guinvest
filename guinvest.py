@@ -122,66 +122,90 @@ def make_table(df_prices):
 
 st.cache(persist=True)
 def make_df_pred_ARIMA(df_prices, steps):
-    """ This function creates the DataFrame which has the tickers"""
+    """ This function creates the DataFrame which has the tickers, closing
+    prices and predicted values based on ARIMA model for a selected number of
+    steps ahead."""
+
+    # Sort values from the oldest values to the newest ones in order to fit
+    # the model.
     df_true_values = df_prices.sort_index(ascending=True)
     forecasts = pd.DataFrame(index=[f'(ARIMA) D + {i + 1}' for i in range(steps)])
     for col in df_true_values.columns:
+        # Find ARIMA's p, d, q values automatically and fit the model.
         model = pm.auto_arima(df_true_values[col])
         forecasts[col] = model.predict(steps)
+    # Dataframe with the last 5 real closing prices and the predicted values.
     df_results = pd.concat([df_true_values.iloc[-5:], forecasts])
     df_results.columns = [f'{col}'.split('.')[0] for col in df_results.columns]
     st.dataframe(df_results.round(decimals=2), height=2500)
 
 st.cache(persist=True)
 def make_df_compare(df_prices, periods=10):
+    """ This function creates a DataFrame and a Plot that helps the user to
+    evaluate the model performance, comparing the actual data with the value
+    that the model would have predicted for the given date based only on the
+    previous datapoints."""
     df_prices = df_prices.sort_index(ascending=True)
     preds = []
     i = periods + 1
     while (i >= 1):
+        # The model only takes into acount the past values and then predicts
+        # one step ahead.
         model = pm.auto_arima(df_prices.iloc[: - i])
         preds.append(model.predict(1)[0])
         i = i - 1
 
+    # The last prediction is left aside because it is related to next day, so
+    # that is useless for comparison purposes.
     df_preds = pd.DataFrame({'Predicted': preds[:-1]},
-                            index = df_prices.iloc[-periods:].index)
+                            index=df_prices.iloc[-periods:].index)
 
+    # Putting the real and predicted values side to side.
     df_compare = pd.concat([df_prices.iloc[-periods:], df_preds],
                            axis=1, join='inner')
-
+    # The real percent return.
     df_compare['Real Ret %'] = (((df_compare[df_compare.columns[0]]
                                  - df_compare[df_compare.columns[0]].shift(1))
                                 / df_compare[df_compare.columns[0]].shift(1))
                                 * 100)
+    # The predicted percent return.
     df_compare['Pred Ret %'] = (((df_compare[df_compare.columns[0]]
                                  - df_compare[df_compare.columns[1]].shift(1))
                                 / df_compare[df_compare.columns[1]].shift(1))
                                 * 100)
+    # Plotting the data.
     make_chart(df_compare[['Real Ret %', 'Pred Ret %']])
     st.dataframe(df_compare.round(decimals=2), height=2500)
 
-### STREAMLIT DASHBOARD ###
+
+# STREAMLIT DASHBOARD #
 st.title("Guinvest")
 st.sidebar.title("My Stocks")
 
 df_tickers = load_tickers()
+# Filling in a multiselect box with all the tickers available.
 tickers = st.sidebar.multiselect(label="Tickers",
                                  options=df_tickers['y_ticker'].values,
                                  key=0)
 
+# A data imputer for the start and end date which will define the timespan
+# which the model will consider in its fitting. The default start date is one
+# year before today.
 start_date = st.sidebar.date_input("From",
-                                   value=today - dt.timedelta(days=360),
+                                   value=today - dt.timedelta(days=365),
                                    max_value=today)
-
 end_date = st.sidebar.date_input("Until",
                                  value=today,
                                  max_value=today) + dt.timedelta(days=1)
 
+# A selectbox to choose the number of steps (days) ahead the model will predict
 steps_options = np.arange(1, 11, 1)
 steps_options = list(steps_options)
 steps = st.sidebar.selectbox(label='Periods to forecast',
                              options=steps_options)
 
 try:
+    # load the data based on chosen tickers and show them.
     df_prices = load_historical_data(tickers, start_date, end_date,
                                      df_type='prices')
     make_chart(df_prices)
@@ -194,16 +218,20 @@ except ValueError:
 except TypeError:
     st.write('Select how many days ahead you want to predict.')
 
+# The models are evaluated one ticker at a time. The user can choose among the
+# previously selected ones.
 st.sidebar.title('Evaluating models')
 ticker_eval = st.sidebar.selectbox(label='Select ticker',
                                    options=tickers)
 
+# A selectbox that enables the user to choose the model evaluation timespan.
 eval_options = np.arange(6, 31, 1)
 eval_options = list(eval_options)
 eval_periods = st.sidebar.selectbox(label='Evaluation period (days)',
                                     options=eval_options)
 
 try:
+    # Make the evaluation plots and table.
     make_df_compare(df_prices[ticker_eval + ' Close'], periods=eval_periods)
 except NameError:
     pass
