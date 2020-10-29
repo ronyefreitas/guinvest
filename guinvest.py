@@ -15,7 +15,41 @@ from bs4 import BeautifulSoup
 
 today = dt.date.today()
 tomorrow = today + dt.timedelta(days=1)
+yesterday = today - dt.timedelta(days=1)
 
+@st.cache(persist=True)  # avoid realoadig data constantly
+def load_tickers_volume():
+    """ This function returns a pandas DataFrame with the B3 most active stocks
+    using as source the webpage
+    https://www.ibovx.com.br/maiores-volume-bovespa.aspx"""
+
+    agent = {"User-Agent": "Mozilla/5.0"}
+    page = requests.get('https://www.ibovx.com.br/maiores-volume-bovespa.aspx',
+                        headers=agent)
+    # Getting the page content.
+    soup = BeautifulSoup(page.content, "html.parser")
+    # In order to find what you want from the webpage, you can open it in a
+    # chrome web browser, open the inspect element tool and figure out the id
+    # and/or tags of the desired data.
+    table = soup.find_all("table")  # Getting the table
+    table = table[0]
+    # Looking into the table and retrieving only the tickers
+    tickers_list = []
+    volumes_list = []
+    for row in table.find_all('tr')[1:]:
+        try:
+            tickers_list.append(row.find_all('a')[0].get_text())
+            volumes_list.append(row.find_all('td')[4].get_text())
+        except IndexError:
+            pass
+
+    df = pd.DataFrame({'Ticker': tickers_list, 'Volume': volumes_list})
+    # in order to use the yfinance library to retrieve Stocks info directly
+    # from Yahoo! Finance it is necessary to include '.SA' at the end of each
+    # ticker, because that is the format required by yfinance.
+    df['y_ticker'] = df['Ticker'].apply(lambda x: str(x) + '.SA')
+
+    return df
 
 @st.cache(persist=True)  # avoid realoadig data constantly
 def load_tickers():
@@ -46,7 +80,7 @@ def load_tickers():
 
     return df
 
-@st.cache(persist=True)
+@st.cache(persist=True, suppress_st_warning=True)
 def load_historical_data(tickers, start_date, end_date, df_type='prices'):
     """ This function returns a pandas DataFrame with the closing prices of the
     given tickers between a start date and and date (not included).
@@ -137,7 +171,7 @@ def make_df_pred_ARIMA(df_prices, steps):
     # Dataframe with the last 5 real closing prices and the predicted values.
     df_results = pd.concat([df_true_values.iloc[-5:], forecasts])
     df_results.columns = [f'{col}'.split('.')[0] for col in df_results.columns]
-    st.dataframe(df_results.round(decimals=2), height=2500)
+    st.dataframe(df_results.round(decimals=4), height=2500)
 
 st.cache(persist=True)
 def make_df_compare(df_prices, periods=10):
@@ -152,12 +186,12 @@ def make_df_compare(df_prices, periods=10):
         # The model only takes into acount the past values and then predicts
         # one step ahead.
         model = pm.auto_arima(df_prices.iloc[: - i])
+        # st.dataframe(df_prices.iloc[: - i])
         preds.append(model.predict(1)[0])
         i = i - 1
 
-    # The last prediction is left aside because it is related to next day, so
-    # that is useless for comparison purposes.
-    df_preds = pd.DataFrame({'Predicted': preds[:-1]},
+    # The first prediction is omitted because it is related to the previous day
+    df_preds = pd.DataFrame({'Predicted': preds[1:]},
                             index=df_prices.iloc[-periods:].index)
 
     # Putting the real and predicted values side to side.
@@ -169,20 +203,20 @@ def make_df_compare(df_prices, periods=10):
                                 / df_compare[df_compare.columns[0]].shift(1))
                                 * 100)
     # The predicted percent return.
-    df_compare['Pred Ret %'] = (((df_compare[df_compare.columns[0]]
-                                 - df_compare[df_compare.columns[1]].shift(1))
+    df_compare['Pred Ret %'] = (((df_compare[df_compare.columns[1]]
+                                 - df_compare[df_compare.columns[0]].shift(1))
                                 / df_compare[df_compare.columns[1]].shift(1))
                                 * 100)
     # Plotting the data.
     make_chart(df_compare[['Real Ret %', 'Pred Ret %']])
-    st.dataframe(df_compare.round(decimals=2), height=2500)
+    st.dataframe(df_compare.round(decimals=4), height=2500)
 
 
 # STREAMLIT DASHBOARD #
 st.title("Guinvest")
 st.sidebar.title("My Stocks")
 
-df_tickers = load_tickers()
+df_tickers = load_tickers_volume()
 # Filling in a multiselect box with all the tickers available.
 tickers = st.sidebar.multiselect(label="Tickers",
                                  options=df_tickers['y_ticker'].values,
@@ -204,6 +238,7 @@ steps_options = list(steps_options)
 steps = st.sidebar.selectbox(label='Periods to forecast',
                              options=steps_options)
 
+# st.dataframe(load_tickers_volume())
 try:
     # load the data based on chosen tickers and show them.
     df_prices = load_historical_data(tickers, start_date, end_date,
@@ -224,7 +259,7 @@ st.sidebar.title('Evaluating models')
 ticker_eval = st.sidebar.selectbox(label='Select ticker',
                                    options=tickers)
 
-# A selectbox that enables the user to choose the model evaluation timespan.
+# A selectbox that enables the user to chdf_prices.iloc[: - i])oose the model evaluation timespan.
 eval_options = np.arange(6, 31, 1)
 eval_options = list(eval_options)
 eval_periods = st.sidebar.selectbox(label='Evaluation period (days)',
